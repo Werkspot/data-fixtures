@@ -10,9 +10,12 @@ use Doctrine\DBAL\Types\Type;
 use Doctrine\ORM\Proxy\Proxy;
 use Doctrine\ORM\Tools\SchemaTool;
 use Doctrine\Tests\Common\DataFixtures\TestEntity\Link;
+use Doctrine\Tests\Common\DataFixtures\TestEntity\Role as RoleEntity;
 use Doctrine\Tests\Common\DataFixtures\TestEntity\Role;
+use Doctrine\Tests\Common\DataFixtures\TestEntity\RoleId;
 use Doctrine\Tests\Common\DataFixtures\TestTypes\UuidType;
 use Doctrine\Tests\Common\DataFixtures\TestValueObjects\Uuid;
+use Mockery;
 
 /**
  * Test ProxyReferenceRepository.
@@ -177,5 +180,40 @@ class ProxyReferenceRepositoryTest extends BaseTest
 
         $this->assertInstanceOf(Proxy::class, $referenceRepository->getReference('admin'));
         $this->assertInstanceOf(Proxy::class, $referenceRepository->getReference('duplicate'));
+    }
+
+    public function testReconstructIdObjects()
+    {
+        $roleId = new RoleId('admin');
+        $role   = new RoleEntity($roleId, 'Admin role');
+
+        $referenceRepository = $this->getFreshReferenceRepository();
+        $referenceRepository->setReference('role.admin', $role);
+
+        $data = $referenceRepository->serialize();
+
+        $referenceRepository = $this->getFreshReferenceRepository($role);
+        $referenceRepository->unserialize($data);
+
+        $retrievedRole = $referenceRepository->getReference('role.admin');
+        $this->assertEquals($roleId, $retrievedRole->getId());
+    }
+
+    private function getFreshReferenceRepository(...$referenceRole)
+    {
+        $entityManager = Mockery::mock(
+            $this->getMockSqliteEntityManager()
+        )->makePartial();
+
+        $schemaTool = new SchemaTool($entityManager);
+        $schemaTool->createSchema([$entityManager->getClassMetadata(self::TEST_ENTITY_ROLE)]);
+
+        foreach ($referenceRole as $reference) {
+            $entityManager->shouldReceive('getReference')
+                ->with(RoleEntity::class, ['id' => $reference->getId()])
+                ->andReturn($reference);
+        }
+
+        return new ProxyReferenceRepository($entityManager);
     }
 }
