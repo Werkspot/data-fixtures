@@ -22,7 +22,8 @@ namespace Doctrine\Tests\Common\DataFixtures;
 use Doctrine\Common\DataFixtures\ProxyReferenceRepository;
 use Doctrine\Common\DataFixtures\Event\Listener\ORMReferenceListener;
 use Doctrine\ORM\Tools\SchemaTool;
-use Doctrine\ORM\Proxy\Proxy;
+use Doctrine\Tests\Common\DataFixtures\TestEntity\RoleId;
+use Doctrine\Tests\Common\DataFixtures\TestEntity\Role as RoleEntity;
 
 /**
  * Test ProxyReferenceRepository.
@@ -153,5 +154,40 @@ class ProxyReferenceRepositoryTest extends BaseTest
 
         $this->assertInstanceOf('Doctrine\ORM\Proxy\Proxy', $referenceRepository->getReference('admin'));
         $this->assertInstanceOf('Doctrine\ORM\Proxy\Proxy', $referenceRepository->getReference('duplicate'));
+    }
+
+    public function testReconstructIdObjects()
+    {
+        $roleId = new RoleId('admin');
+        $role = new RoleEntity($roleId, 'Admin role');
+
+        $referenceRepository = $this->getFreshReferenceRepository();
+        $referenceRepository->setReference('role.admin', $role);
+
+        $data = $referenceRepository->serialize();
+
+        $referenceRepository = $this->getFreshReferenceRepository($role);
+        $referenceRepository->unserialize($data);
+
+        $retrievedRole = $referenceRepository->getReference('role.admin');
+        $this->assertEquals($roleId, $retrievedRole->getId());
+    }
+
+    private function getFreshReferenceRepository(...$referenceRole)
+    {
+        $entityManager = \Mockery::mock(
+            $this->getMockSqliteEntityManager()
+        )->makePartial();
+
+        $schemaTool = new SchemaTool($entityManager);
+        $schemaTool->createSchema(array($entityManager->getClassMetadata(self::TEST_ENTITY_ROLE)));
+
+        foreach ($referenceRole as $reference) {
+            $entityManager->shouldReceive('getReference')
+                ->with(RoleEntity::class, array('id' => $reference->getId()))
+                ->andReturn($reference);
+        }
+
+        return new ProxyReferenceRepository($entityManager);
     }
 }

@@ -65,16 +65,11 @@ class ProxyReferenceRepository extends ReferenceRepository
 
         foreach ($this->getReferences() as $name => $reference) {
             $className = $this->getRealClass(get_class($reference));
+            $identifier = $this->serializeIdentifiers(
+                $this->getIdentifier($reference, $unitOfWork)
+            );
 
-            $id = $this->getIdentifier($reference, $unitOfWork);
-            if (isset($id['user']) && is_object($id['user'])) {
-                $id['user'] = $id['user']->getId();
-            }
-            if (isset($id['id']) && is_object($id['id'])) {
-                $id['id'] = $id['id']->getId();
-            }
-
-            $simpleReferences[$name] = array($className, $id);
+            $simpleReferences[$name] = array($className, $identifier);
         }
 
         $serializedData = json_encode(array(
@@ -83,6 +78,29 @@ class ProxyReferenceRepository extends ReferenceRepository
         ));
 
         return $serializedData;
+    }
+
+    /**
+     * For ids that are stored in custom value objects we also need to include the className into the result
+     * so that when we unserialize we can re-create the right objects.
+     *
+     * @param array $identifiers
+     * @return array
+     */
+    private function serializeIdentifiers($identifiers)
+    {
+        foreach ($identifiers as &$id) {
+            if (! is_object($id) || ! method_exists($id, 'getId')) {
+                continue;
+            }
+
+            $id = array(
+                $this->getRealClass(get_class($id)),
+                $id->getId()
+            );
+        }
+
+        return $identifiers;
     }
 
     /**
@@ -96,11 +114,14 @@ class ProxyReferenceRepository extends ReferenceRepository
         $references     = $repositoryData['references'];
 
         foreach ($references as $name => $proxyReference) {
+            $className = $proxyReference[0];
+            $identifier = $this->unserializeIdentifiers($proxyReference[1]);
+
             $this->setReference(
                 $name,
                 $this->getManager()->getReference(
-                    $proxyReference[0], // entity class name
-                    $proxyReference[1]  // identifiers
+                    $className,
+                    $identifier
                 )
             );
         }
@@ -110,6 +131,27 @@ class ProxyReferenceRepository extends ReferenceRepository
         foreach ($identities as $name => $identity) {
             $this->setReferenceIdentity($name, $identity);
         }
+    }
+
+    /**
+     * Few ids have a custom id value object to hold the value, this method will correctly unserialize the id
+     * into an instance whenever a custom class name is provided in the data.
+     *
+     * @param array $identifiers
+     * @return array
+     */
+    private function unserializeIdentifiers($identifiers)
+    {
+        foreach ($identifiers as &$id) {
+            if (! is_array($id)) {
+                continue;
+            }
+
+            list($className, $id) = $id;
+            $id = new $className($id);
+        }
+
+        return $identifiers;
     }
 
     /**
